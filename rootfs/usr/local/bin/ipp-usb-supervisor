@@ -1,0 +1,77 @@
+#!/bin/bash
+# Keeps ipp-usb in step with the USB printers actually present.
+#
+# Why this exists: ipp-usb normally relies on hotplug events, but a container
+# in its own network namespace never receives the kernel's uevent broadcasts.
+# A printer that powers off and back on re-enumerates under a new device
+# number, and ipp-usb would never notice. So we poll sysfs (cheap) and restart
+# ipp-usb whenever the set of printer-class USB devices changes.
+#
+# Requires /dev/bus/usb bind-mounted from the host (not a --device snapshot),
+# otherwise new device nodes never appear inside the container.
+
+POLL="${IPP_USB_POLL:-5}"
+# Printers re-enumerate several times while booting; wait for the device set
+# to hold still this long before (re)starting ipp-usb.
+SETTLE="${IPP_USB_SETTLE:-10}"
+
+log() { echo "[ipp-usb-supervisor] $*"; }
+
+# One line per attached device that has a printer-class (07) interface:
+# "<busnum>/<devnum> <vid>:<pid>". Changes on replug or power-cycle.
+printers() {
+    local d
+    for d in /sys/bus/usb/devices/*-*; do
+        [ -f "$d/busnum" ] || continue
+        grep -qx 07 "$d"/*:*/bInterfaceClass 2>/dev/null || continue
+        echo "$(cat "$d/busnum")/$(cat "$d/devnum") $(cat "$d/idVendor"):$(cat "$d/idProduct")"
+    done | sort
+}
+
+pid=""
+running() { [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; }
+
+stop_ipp_usb() {
+    if running; then
+        log "stopping ipp-usb (pid $pid)"
+        kill "$pid" 2>/dev/null
+        for _ in 1 2 3 4 5; do running || break; sleep 1; done
+        running && kill -9 "$pid" 2>/dev/null
+    fi
+    pid=""
+}
+
+trap 'stop_ipp_usb; exit 0' TERM INT
+
+current=""
+candidate=""
+since=0
+
+while true; do
+    now=$(date +%s)
+    seen="$(printers)"
+
+    if [ "$seen" != "$candidate" ]; then
+        candidate="$seen"
+        since=$now
+    fi
+
+    if [ $((now - since)) -ge "$SETTLE" ]; then
+        if [ -z "$candidate" ]; then
+            if running; then
+                log "no USB printers present"
+                stop_ipp_usb
+            fi
+            current=""
+        elif [ "$candidate" != "$current" ] || ! running; then
+            [ "$candidate" != "$current" ] && log "printers: $(echo $candidate)"
+            stop_ipp_usb
+            ipp-usb debug &
+            pid=$!
+            current="$candidate"
+            log "started ipp-usb (pid $pid)"
+        fi
+    fi
+
+    sleep "$POLL"
+done
