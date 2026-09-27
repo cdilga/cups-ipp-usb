@@ -64,7 +64,7 @@ while true; do
             fi
             current=""
         elif [ "$candidate" != "$current" ] || ! running; then
-            [ "$candidate" != "$current" ] && log "printers: $(echo $candidate)"
+            [ "$candidate" != "$current" ] && log "printers: ${candidate//$'\n'/, }"
             stop_ipp_usb
             ipp-usb debug &
             pid=$!
