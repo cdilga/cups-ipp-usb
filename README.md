@@ -28,6 +28,7 @@ ghcr.io/cdilga/cups-ipp-usb:latest     # linux/amd64, linux/arm64
 | `start.sh` | Starts the supervisor, then runs the base image's entrypoint (`cupsd -f`). |
 | `ipp-usb-supervisor` | Polls sysfs for printer-class USB devices and (re)starts ipp-usb when they change. See below. |
 | `ipp-usb.conf` | mDNS off (CUPS already advertises the queue), listen on all container interfaces. |
+| `ppd-restrict-media` | Limit a queue to the paper size actually loaded (see below). |
 | `quirks/brother.conf` | USB reset before claiming a Brother HL-L2400DW, which otherwise refuses the IPP-USB alternate setting. |
 
 ### Why a supervisor instead of ipp-usb's own hotplug
@@ -72,6 +73,20 @@ Then point the queue at ipp-usb instead of the raw USB backend:
 ```sh
 lpadmin -p MyPrinter -E -v ipp://localhost:60000/ipp/print -m everywhere
 ```
+
+### Restricting paper sizes
+
+A driverless queue advertises every size the printer claims to support, so a
+client can happily send US Letter to a tray full of A4. To offer only what is
+actually loaded:
+
+```sh
+ppd-restrict-media MyPrinter A4
+```
+
+`media-supported` then reports only A4, macOS offers only A4, and documents
+laid out for other sizes are scaled to fit. Re-running `lpadmin -m everywhere`
+regenerates the PPD and undoes this.
 
 The printer's web admin is at `http://<host>:60000/` if you published the
 port, or through `ssh -L 60000:<container-ip>:60000 <host>` if you didn't.

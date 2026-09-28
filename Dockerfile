@@ -14,7 +14,7 @@ LABEL org.opencontainers.image.source="https://github.com/cdilga/cups-ipp-usb" \
 
 COPY rootfs/ /
 
-RUN chmod 0755 /usr/local/bin/start.sh /usr/local/bin/ipp-usb-supervisor \
+RUN chmod 0755 /usr/local/bin/start.sh /usr/local/bin/ipp-usb-supervisor /usr/local/bin/ppd-restrict-media \
  && ipp-usb check >/dev/null 2>&1 || true
 
 # 631: CUPS. 60000: first ipp-usb device (IPP + printer web UI).

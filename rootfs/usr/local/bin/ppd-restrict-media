@@ -1,0 +1,32 @@
+#!/bin/bash
+# Limit a CUPS queue to one paper size (default A4).
+#
+# A driverless queue advertises every size the printer claims to support, so
+# clients can send e.g. US Letter to a tray of A4. This rewrites the queue's
+# PPD to offer only the given size, removes custom sizes, and sets
+# print-scaling-default=auto so other layouts are scaled to fit.
+#
+# Re-running `lpadmin -m everywhere` regenerates the PPD and undoes this.
+set -euo pipefail
+
+usage() { echo "usage: $0 <queue> [size, default A4]" >&2; exit 2; }
+[ $# -ge 1 ] || usage
+queue="$1"
+size="${2:-A4}"
+ppd="/etc/cups/ppd/${queue}.ppd"
+[ -f "$ppd" ] || { echo "no PPD at $ppd" >&2; exit 1; }
+
+grep -qE "^\*PageSize ${size}[.:/]" "$ppd" || { echo "size $size not in $ppd" >&2; exit 1; }
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+sed -E \
+    -e "/^\*(PageSize|PageRegion|ImageableArea|PaperDimension) /{/^\*[A-Za-z]+ ${size}[.:\/]/!d}" \
+    -e "s/^\*Default(PageSize|PageRegion|ImageableArea|PaperDimension): .*/*Default\1: ${size}/" \
+    -e '/^\*(CustomPageSize|ParamCustomPageSize|MaxMediaWidth|MaxMediaHeight)/d' \
+    "$ppd" > "$tmp"
+
+cp "$ppd" "${ppd}.before-restrict"
+lpadmin -p "$queue" -P "$tmp" -o print-scaling-default=auto
+echo "$queue now offers only $size (previous PPD kept at ${ppd}.before-restrict)"

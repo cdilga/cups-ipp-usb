@@ -66,7 +66,9 @@ while true; do
         elif [ "$candidate" != "$current" ] || ! running; then
             [ "$candidate" != "$current" ] && log "printers: ${candidate//$'\n'/, }"
             stop_ipp_usb
-            ipp-usb debug &
+            # "zero-size read" is benign USB polling noise on some printers
+            # (the Brother logs it ~7x/minute); keep it out of container logs.
+            ipp-usb debug > >(grep --line-buffered -v 'zero-size read') 2>&1 &
             pid=$!
             current="$candidate"
             log "started ipp-usb (pid $pid)"
